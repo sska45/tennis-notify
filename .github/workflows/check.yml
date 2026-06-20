@@ -1,0 +1,40 @@
+name: テニスコート空きチェック
+
+on:
+  schedule:
+    - cron: "*/10 22-23 * * *"  # JST 07:00-08:59（UTC 22-23時）
+    - cron: "*/10 0-15 * * *"   # JST 09:00-24:59（UTC 0-15時）
+  workflow_dispatch:            # 手動実行も可能
+
+# 同時実行を防ぐ（前の回が長引いても多重起動しない）
+concurrency:
+  group: tennis-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 状態キャッシュを復元
+        uses: actions/cache@v4
+        with:
+          path: state.json
+          key: tennis-state-${{ github.run_id }}
+          restore-keys: tennis-state-
+
+      - name: 依存パッケージインストール
+        run: pip install requests
+
+      - name: 空きチェック
+        run: python check_availability.py
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          WEEKS_AHEAD: "5"

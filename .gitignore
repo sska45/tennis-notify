@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+state.json
+node_modules/
+*.png
+*.mjs
+probe*.py
+explore.mjs
+package*.json
