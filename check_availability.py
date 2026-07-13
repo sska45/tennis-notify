@@ -118,6 +118,9 @@ def fetch_park(park):
 # ── フィルタ：平日19時以降＋土日全枠 ──────────────────────────────────────────
 
 def passes_filter(slot):
+    # 当日分は通知しない
+    if slot["date"] == datetime.now(JST).strftime("%Y-%m-%d"):
+        return False
     if slot["weekday"] >= 5:   # 5=土, 6=日 → 全枠
         return True
     return slot["start"] >= EVENING_FROM  # 平日は19時以降のみ
