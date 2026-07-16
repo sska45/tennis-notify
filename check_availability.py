@@ -11,11 +11,14 @@ from datetime import datetime, timedelta, timezone
 JST = timezone(timedelta(hours=9))
 BASE = "https://kouen.sports.metro.tokyo.lg.jp/web/"
 
-# 監視する公園（テニス／人工芝コート）
-# bcd=公園コード, icd=施設コード（解析で特定済み）
+# 監視する公園（テニスコート）
+# bcd=公園コード, icd=施設コード, pps=目的コード（1030=人工芝, 1020=ハード）。解析で特定済み
 PARKS = [
-    {"name": "猿江恩賜公園", "bcd": "1040", "icd": "10400030"},
-    {"name": "木場公園",     "bcd": "1060", "icd": "10600010"},
+    {"name": "猿江恩賜公園",           "bcd": "1040", "icd": "10400030", "pps": "1030"},
+    {"name": "木場公園",               "bcd": "1060", "icd": "10600010", "pps": "1030"},
+    {"name": "日比谷公園",             "bcd": "1000", "icd": "10000010", "pps": "1030"},
+    {"name": "芝公園",                 "bcd": "1010", "icd": "10100030", "pps": "1030"},
+    {"name": "有明テニスの森（インドア）", "bcd": "1370", "icd": "13700010", "pps": "1020"},
 ]
 
 WEEKS_AHEAD = int(os.environ.get("WEEKS_AHEAD", "5"))  # 何週間先まで確認するか
@@ -29,12 +32,12 @@ GMAIL_USER = os.environ.get("GMAIL_USER", "")             # 送信元Gmailアド
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")  # アプリパスワード
 NOTIFY_TO = os.environ.get("NOTIFY_TO", GMAIL_USER)       # 通知先（未指定なら送信元と同じ）
 
-# 空き状況Actionの完全POST本文テンプレート（実機解析で取得。bcdのみ差し替え）
+# 空き状況Actionの完全POST本文テンプレート（実機解析で取得。bcd/ppsを差し替え）
 INST_SRCH_BODY = (
-    "daystarthome={today}&daystart={today}&selectPpsClPpscd=1000_1030"
+    "daystarthome={today}&daystart={today}&selectPpsClPpscd=1000_{pps}"
     "&penaltyday=%5Bundefined%5D&dayofweekClearFlg=1&timezoneClearFlg=1"
     "&selectAreaBcd={bcd}&selectIcd=0&item540=%8Ew%92%E8%82%C8%82%B5"
-    "&selectPpsClsCd=1000&selectPpsCd=1030&selectBldCd={bcd}"
+    "&selectPpsClsCd=1000&selectPpsCd={pps}&selectBldCd={bcd}"
     "&displayNo=pawab2000&displayNoFrm=pawab2000"
 )
 
@@ -81,7 +84,7 @@ def fetch_park(park):
     s.get(BASE, timeout=20)
     # 2) 空き状況Action（サーバー側に公園・目的の選択状態をセット）
     s.post(BASE + "rsvWOpeInstSrchVacantAction.do",
-           data=INST_SRCH_BODY.format(today=today, bcd=park["bcd"]), timeout=20)
+           data=INST_SRCH_BODY.format(today=today, bcd=park["bcd"], pps=park["pps"]), timeout=20)
     # 3) 施設一覧Ajax（同上）
     s.post(BASE + "rsvWOpeInstSrchVacantBuildAjaxAction.do",
            data=f"displayNo=prwre1000&bldCd={park['bcd']}", timeout=20)
