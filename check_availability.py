@@ -24,6 +24,9 @@ PARKS = [
 WEEKS_AHEAD = int(os.environ.get("WEEKS_AHEAD", "5"))  # 何週間先まで確認するか
 STATE_FILE = "state.json"
 
+# この日付より前（この日を含む）の枠は通知しない。不要になったら "" にする
+NOTIFY_FROM_DATE = "2026-08-24"  # 2026-08-23分までは通知しない
+
 # 通知条件：平日は EVENING_FROM 以降のみ、土日は全枠
 EVENING_FROM = 1900  # HHMM。平日はこの開始時刻以降の枠だけ通知
 
@@ -123,6 +126,9 @@ def fetch_park(park):
 def passes_filter(slot):
     # 当日分は通知しない
     if slot["date"] == datetime.now(JST).strftime("%Y-%m-%d"):
+        return False
+    # 指定日より前の分は通知しない
+    if NOTIFY_FROM_DATE and slot["date"] < NOTIFY_FROM_DATE:
         return False
     if slot["weekday"] >= 5:   # 5=土, 6=日 → 全枠
         return True
