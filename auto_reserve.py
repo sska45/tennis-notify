@@ -161,48 +161,43 @@ def reserve_one(page, target):
     tag = f"{park['bcd']}_{target['date']}_{target['startTime']}"
     log(f"予約試行: {park['name']} {target['date']} {target['startTime']}")
 
-    # 空き状況ページ（施設ごと）へ遷移。
-    # 注意: ここで page.goto(BASE) すると公開トップを読み直してログイン状態が切れるため、
-    # 認証済みセッションのまま doAction で「施設の予約(#free-search)」へ遷移する。
     use_day = target["date"].replace("-", "")     # YYYYMMDD
     tzone = START_TO_TZONE[target["startTime"]]
     cell_id = f"{use_day}_{tzone}"                 # 例: 20261019_30
 
-    # 空き状況ページ（施設ごと）へ遷移。ページは二重遷移することがあるので settle を待つ。
-    # 最大2回リトライ（getWeekInfoAjax が定義されるまで）
+    # 空き状況ページ（施設ごと）へ遷移。
+    # home(#free-search)は読み込み後に自動で二次遷移し不安定なので使わない。
+    # requests方式で実績のある InstSrchVacantAction へ、認証済みセッションのまま
+    # 直接フォームPOSTして一発で空き状況ページに入る（ドロップダウン操作を廃止）。
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    srch_params = {
+        "daystarthome": today, "daystart": today,
+        "selectPpsClPpscd": f"1000_{park['pps']}",
+        "dayofweekClearFlg": "1", "timezoneClearFlg": "1",
+        "selectAreaBcd": park["bcd"], "selectIcd": "0",
+        "selectPpsClsCd": "1000", "selectPpsCd": park["pps"],
+        "selectBldCd": park["bcd"],
+        "displayNo": "pawab2000", "displayNoFrm": "pawab2000",
+    }
     ready = False
     for attempt in range(2):
-        page.evaluate("doAction(document.form1, gRsvWOpeHomeAction + '#free-search')")
+        page.evaluate(
+            """(p) => {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/web/rsvWOpeInstSrchVacantAction.do';
+                for (const [k, v] of Object.entries(p)) {
+                    const i = document.createElement('input');
+                    i.type = 'hidden'; i.name = k; i.value = v;
+                    form.appendChild(i);
+                }
+                document.body.appendChild(form);
+                form.submit();
+            }""",
+            srch_params,
+        )
         page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1200)
-        # 種目→公園を選択。select_optionは可視/有効を要求し不安定なので、
-        # JSで値をセットしchangeを発火する（可視性に依存しない）。
-        try:
-            page.wait_for_function(
-                "() => { const s=document.querySelector('#purpose-home'); return s && s.options.length>1; }",
-                timeout=15000)
-        except Exception:
-            info = page.evaluate("() => ({url: location.href, title: document.title, hasPurpose: !!document.querySelector('#purpose-home')})")
-            log(f"  ホームの種目選択が出ない(試行{attempt+1}): {info}")
-            shot(page, f"01_nohome_{tag}_{attempt}")
-            continue
-        page.evaluate("""() => {
-            const s = document.querySelector('#purpose-home');
-            const o = [...s.options].find(o => /人工芝/.test(o.text));
-            if (o) { s.value = o.value; s.dispatchEvent(new Event('change', {bubbles:true})); }
-        }""")
-        page.wait_for_function(
-            "() => { const s=document.querySelector('#bname-home'); return s && s.options.length>1; }",
-            timeout=15000)
-        page.evaluate("""(bcd) => {
-            const s = document.querySelector('#bname-home');
-            let o = [...s.options].find(o => o.value === bcd) || [...s.options].find(o => o.text.includes('猿江') || o.text.includes('木場'));
-            if (o) { s.value = o.value; s.dispatchEvent(new Event('change', {bubbles:true})); }
-        }""", park["bcd"])
-        page.wait_for_timeout(500)
-        page.evaluate("doSearchHome(document.form1, gRsvWOpeInstSrchVacantAction)")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2500)   # 二重遷移が落ち着くのを待つ
+        page.wait_for_timeout(2000)
         try:
             page.wait_for_function("() => typeof getWeekInfoAjax === 'function'", timeout=15000)
             ready = True
