@@ -174,17 +174,32 @@ def reserve_one(page, target):
     for attempt in range(2):
         page.evaluate("doAction(document.form1, gRsvWOpeHomeAction + '#free-search')")
         page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1000)
-        # 種目→公園を選択（ドロップダウンが有効化されるのを待つ）
+        page.wait_for_timeout(1200)
+        # 種目→公園を選択。select_optionは可視/有効を要求し不安定なので、
+        # JSで値をセットしchangeを発火する（可視性に依存しない）。
+        try:
+            page.wait_for_function(
+                "() => { const s=document.querySelector('#purpose-home'); return s && s.options.length>1; }",
+                timeout=15000)
+        except Exception:
+            info = page.evaluate("() => ({url: location.href, title: document.title, hasPurpose: !!document.querySelector('#purpose-home')})")
+            log(f"  ホームの種目選択が出ない(試行{attempt+1}): {info}")
+            shot(page, f"01_nohome_{tag}_{attempt}")
+            continue
+        page.evaluate("""() => {
+            const s = document.querySelector('#purpose-home');
+            const o = [...s.options].find(o => /人工芝/.test(o.text));
+            if (o) { s.value = o.value; s.dispatchEvent(new Event('change', {bubbles:true})); }
+        }""")
         page.wait_for_function(
-            "() => { const s=document.querySelector('#purpose-home'); return s && s.options.length>1; }",
+            "() => { const s=document.querySelector('#bname-home'); return s && s.options.length>1; }",
             timeout=15000)
-        page.select_option("#purpose-home", label="テニス（人工芝）")
-        page.wait_for_function(
-            "() => { const s=document.querySelector('#bname-home'); return s && !s.disabled && s.options.length>1; }",
-            timeout=15000)
-        page.select_option("#bname-home", label=park["name"])
-        page.wait_for_timeout(400)
+        page.evaluate("""(bcd) => {
+            const s = document.querySelector('#bname-home');
+            let o = [...s.options].find(o => o.value === bcd) || [...s.options].find(o => o.text.includes('猿江') || o.text.includes('木場'));
+            if (o) { s.value = o.value; s.dispatchEvent(new Event('change', {bubbles:true})); }
+        }""", park["bcd"])
+        page.wait_for_timeout(500)
         page.evaluate("doSearchHome(document.form1, gRsvWOpeInstSrchVacantAction)")
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(2500)   # 二重遷移が落ち着くのを待つ
