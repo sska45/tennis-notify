@@ -24,9 +24,6 @@ PARKS = [
 WEEKS_AHEAD = int(os.environ.get("WEEKS_AHEAD", "5"))  # 何週間先まで確認するか
 STATE_FILE = "state.json"
 
-# この日付より前（この日を含む）の枠は通知しない。不要になったら "" にする
-NOTIFY_FROM_DATE = "2026-08-24"  # 2026-08-23分までは通知しない
-
 # 当日から SKIP_WITHIN_DAYS 日後まで（当日含む）の枠は通知しない。直近すぎる枠を除外する
 SKIP_WITHIN_DAYS = 3  # 当日〜3日後を除外 → 通知対象は4日後以降
 
@@ -133,9 +130,6 @@ def passes_filter(slot):
     # 当日〜SKIP_WITHIN_DAYS日後（直近すぎる枠）は通知しない
     earliest = (datetime.now(JST).date() + timedelta(days=SKIP_WITHIN_DAYS + 1)).strftime("%Y-%m-%d")
     if slot["date"] < earliest:
-        return False
-    # 指定日より前の分は通知しない
-    if NOTIFY_FROM_DATE and slot["date"] < NOTIFY_FROM_DATE:
         return False
     if slot["weekday"] >= 5:   # 5=土, 6=日 → 全枠
         return True
