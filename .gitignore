@@ -8,3 +8,6 @@ node_modules/
 probe*.py
 explore.mjs
 package*.json
+artifacts/
+reserved.json
+verify_targets.py
