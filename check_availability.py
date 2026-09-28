@@ -27,6 +27,12 @@ STATE_FILE = "state.json"
 # この日付より前（この日を含む）の枠は通知しない。不要になったら "" にする
 NOTIFY_FROM_DATE = "2026-08-24"  # 2026-08-23分までは通知しない
 
+# 当日から SKIP_WITHIN_DAYS 日後まで（当日含む）の枠は通知しない。直近すぎる枠を除外する
+SKIP_WITHIN_DAYS = 3  # 当日〜3日後を除外 → 通知対象は4日後以降
+
+# 一度通知した日時は、この時間だけ再通知を抑制する
+NOTIFY_COOLDOWN_HOURS = 24
+
 # 通知条件：平日は EVENING_FROM 以降のみ、土日は全枠
 EVENING_FROM = 1900  # HHMM。平日はこの開始時刻以降の枠だけ通知
 
@@ -124,8 +130,9 @@ def fetch_park(park):
 # ── フィルタ：平日19時以降＋土日全枠 ──────────────────────────────────────────
 
 def passes_filter(slot):
-    # 当日分は通知しない
-    if slot["date"] == datetime.now(JST).strftime("%Y-%m-%d"):
+    # 当日〜SKIP_WITHIN_DAYS日後（直近すぎる枠）は通知しない
+    earliest = (datetime.now(JST).date() + timedelta(days=SKIP_WITHIN_DAYS + 1)).strftime("%Y-%m-%d")
+    if slot["date"] < earliest:
         return False
     # 指定日より前の分は通知しない
     if NOTIFY_FROM_DATE and slot["date"] < NOTIFY_FROM_DATE:
@@ -187,8 +194,19 @@ def main():
             errors.append(f"{park['name']}: {e}")
             print(f"{park['name']}: エラー — {e}")
 
-    # ×→○ に変わった（前回なくて今回ある）枠だけ通知
-    newly = sorted(current - prev, key=lambda k: slot_by_key[k])
+    # ×→○ に変わった（前回なくて今回ある）枠が候補
+    candidates = current - prev
+
+    # 24時間クールダウン：一度通知した日時は NOTIFY_COOLDOWN_HOURS 以内は再通知しない
+    now = datetime.now(JST)
+    notified_at = state.get("notified_at", {})
+    newly = []
+    for k in candidates:
+        last = notified_at.get(k)
+        if last and (now - datetime.fromisoformat(last)) < timedelta(hours=NOTIFY_COOLDOWN_HOURS):
+            continue  # クールダウン中
+        newly.append(k)
+    newly.sort(key=lambda k: slot_by_key[k])
 
     if newly:
         lines = ["🎾 テニスコートに空きが出ました！\n"]
@@ -198,9 +216,17 @@ def main():
         body = "\n".join(lines)
         subject = f"🎾 テニス空き {len(newly)}件"
         send_mail(subject, body)
+        for k in newly:
+            notified_at[k] = now.isoformat()  # 通知時刻を記録
         print(f"新規の空き {len(newly)}件を通知しました")
     else:
         print("新規の空きなし（通知なし）")
+
+    # notified_at が無限に増えないよう、クールダウンをとうに過ぎた記録は削除
+    cutoff = now - timedelta(hours=NOTIFY_COOLDOWN_HOURS * 2)
+    notified_at = {k: t for k, t in notified_at.items()
+                   if datetime.fromisoformat(t) >= cutoff}
+    state["notified_at"] = notified_at
 
     # エラーがあっても、取得できた公園の状態は保存する。
     # 取得できなかった公園の前回キーは保持し、誤って「消えた」扱いにしない。
