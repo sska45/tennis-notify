@@ -239,32 +239,42 @@ def reserve_one(page, target):
     )
     log("  選択後ボタン:", json.dumps(btns, ensure_ascii=False)[:600])
 
-    # 予約申込へ（checkSelect → ReservedApplyAction）。ナビ以外の申込ボタンを優先
-    proceeded = page.evaluate(
-        """() => {
-            const cands = [...document.querySelectorAll('button, a.btn, input[type=button], input[type=submit]')];
-            // ReservedApply/checkSelect を呼ぶボタンを最優先
-            let b = cands.find(e => /ReservedApply|checkSelect/.test(e.getAttribute('onclick')||''));
-            // 次点：テキストが「予約」で始まる操作ボタン（ナビの「予約」メニューは <a> のヘッダ内なので除外気味）
-            if (!b) b = cands.find(e => /^(予約|申込|確保|次へ|確認)/.test((e.innerText||e.value||'').trim())
-                                        && !e.closest('nav') && !e.closest('header'));
-            if (b) { b.click(); return (b.innerText||b.value||'').trim() + ' | ' + (b.getAttribute('onclick')||''); }
-            return null;
-        }"""
-    )
-    log("  予約申込ボタン:", proceeded)
-    page.wait_for_timeout(800)
-    # penaltyやconfirmのダイアログが出たら内容を捕捉（DRY_RUNでは先に進めない）
-    page.wait_for_load_state("networkidle")
-    page.wait_for_timeout(1500)
-    shot(page, f"03_after_reserve_click_{tag}")
-
-    if DRY_RUN:
-        log("  DRY_RUN: ここで停止（確定しません）。確認画面を捕捉しました。")
+    # 選択が登録されたか確認（selectSize>=1）
+    sel_size = page.evaluate("() => document.form1.selectSize ? document.form1.selectSize.value : '?'")
+    log("  selectSize:", sel_size)
+    if sel_size in ("0", "?"):
+        log("  枠選択が登録されていません。中止。")
         return False
 
-    # ── ここから先（本番の確定）は、DRY_RUNの捕捉結果を見てから実装する ──
-    log("  本番確定ロジックは未実装（DRY_RUNの捕捉後に追加）")
+    # 予約申込へ。submitボタンのclickは二重送信でエラーになるため、checkSelectを直接呼ぶ。
+    # ペナルティ非該当なら applyFlg=1 にして ReservedApplyAction へ遷移（＝申込確認画面。まだ確定ではない）
+    page.evaluate("() => checkSelect(document.form1, gRsvWOpeReservedApplyAction)")
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(1800)
+    shot(page, f"03_apply_confirm_{tag}")
+
+    # 遷移先が申込確認画面かエラーかを判定し、確定ボタン候補を診断
+    after = page.evaluate(
+        """() => ({
+            title: document.title,
+            isError: /エラー/.test(document.title) || /データ通信を正しく/.test(document.body.innerText),
+            buttons: [...document.querySelectorAll('button, a.btn, input[type=button], input[type=submit]')]
+                .map(e => ({t:(e.innerText||e.value||'').trim().replace(/\\s+/g,' ').slice(0,24),
+                            oc:(e.getAttribute('onclick')||'').slice(0,80)}))
+                .filter(x => x.t && x.t !== '×' && x.t !== '閉じる'),
+        })""")
+    log("  申込確認画面:", json.dumps(after, ensure_ascii=False)[:700])
+
+    if after.get("isError"):
+        log("  ★申込に失敗（エラー画面）。03_apply_confirm を確認してください。")
+        return False
+
+    if DRY_RUN:
+        log("  DRY_RUN: 申込確認画面まで到達。ここで停止（確定しません）。")
+        return False
+
+    # ── 本番の最終確定は、申込確認画面のボタン確定後に実装する ──
+    log("  本番確定ロジックは未実装（申込確認画面のボタン確定後に追加）")
     return False
 
 
