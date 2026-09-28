@@ -172,18 +172,56 @@ def reserve_one(page, target):
     page.evaluate("doSearchHome(document.form1, gRsvWOpeInstSrchVacantAction)")
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(2000)
+
+    # グリッドは自動描画されないことがあるため、対象週(useDay起点)へ移動して強制描画する
+    use_day = target["date"].replace("-", "")
+    render = page.evaluate(
+        """(useDay) => {
+            try {
+                if (document.form1 && document.form1.useDay) {
+                    document.form1.useDay.value = useDay;
+                }
+                if (typeof getWeekInfoAjax === 'function') {
+                    getWeekInfoAjax(11, 0, 0);   // 週表示を再取得・描画
+                    return 'getWeekInfoAjax called';
+                }
+                return 'getWeekInfoAjax undefined';
+            } catch (e) { return 'ERR:' + e.message; }
+        }""",
+        use_day,
+    )
+    log("  グリッド描画:", render)
+    page.wait_for_timeout(2500)
     shot(page, f"01_vacant_{tag}")
 
-    # 対象日・時間帯の「空き(●)」セルを探してクリック
-    # グリッドは動的描画のため、useDay(YYYYMMDD)とstartTimeを手掛かりに探索する
-    use_day = target["date"].replace("-", "")
+    # 診断：週グリッドの状態と setReserv セルの一覧
+    diag = page.evaluate(
+        """({useDay, startTime}) => {
+            const wi = document.querySelector('#week-info');
+            const cells = [...document.querySelectorAll('[onclick*="setReserv"]')];
+            const samples = cells.slice(0, 4).map(e => e.getAttribute('onclick'));
+            const match = cells.find(e => {
+                const oc = e.getAttribute('onclick');
+                return oc.includes(String(useDay)) && oc.includes(',' + startTime + ',');
+            });
+            return {
+                weekInfoLen: wi ? wi.innerHTML.length : -1,
+                setReservCount: cells.length,
+                samples,
+                matched: match ? match.getAttribute('onclick') : null,
+            };
+        }""",
+        {"useDay": use_day, "startTime": target["startTime"]},
+    )
+    log("  診断:", json.dumps(diag, ensure_ascii=False)[:500])
+
+    # 対象セル（setReserv(... , iDay, startTime, ...)）をクリック
     clicked = page.evaluate(
         """({useDay, startTime}) => {
-            // setReserv(idName,bCd,iCd,iDay,startTime,endTime,tzoneNo) を呼ぶ要素を探す
-            const els = [...document.querySelectorAll('[onclick*="setReserv"]')];
-            for (const el of els) {
+            const cells = [...document.querySelectorAll('[onclick*="setReserv"]')];
+            for (const el of cells) {
                 const oc = el.getAttribute('onclick');
-                if (oc.includes(String(useDay)) && oc.includes(String(startTime))) {
+                if (oc.includes(String(useDay)) && oc.includes(',' + startTime + ',')) {
                     el.click();
                     return oc;
                 }
@@ -193,19 +231,40 @@ def reserve_one(page, target):
         {"useDay": use_day, "startTime": target["startTime"]},
     )
     log("  セル検索結果:", clicked)
-    page.wait_for_timeout(1500)
+    page.wait_for_timeout(1800)
     shot(page, f"02_selected_{tag}")
 
     if not clicked:
-        log("  対象セルが見つかりませんでした（描画待ち/構造要確認）。捕捉のみで終了。")
+        log("  対象セルが見つかりませんでした。上の診断とスクショを共有してください。")
         return False
 
-    # 「予約」ボタンへ（checkSelect → ReservedApplyAction）
-    btn = page.query_selector("button:has-text('予約'), a:has-text('予約')")
-    if btn:
-        btn.click()
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1500)
+    # 選択後に現れる操作ボタンを診断（ナビの「予約」メニューと区別するため）
+    btns = page.evaluate(
+        """() => [...document.querySelectorAll('button, a.btn, input[type=button], input[type=submit]')]
+              .map(e => ({t: (e.innerText||e.value||'').trim().replace(/\\s+/g,' ').slice(0,20),
+                          oc: (e.getAttribute('onclick')||'').slice(0,70)}))
+              .filter(x => x.t || x.oc)"""
+    )
+    log("  選択後ボタン:", json.dumps(btns, ensure_ascii=False)[:600])
+
+    # 予約申込へ（checkSelect → ReservedApplyAction）。ナビ以外の申込ボタンを優先
+    proceeded = page.evaluate(
+        """() => {
+            const cands = [...document.querySelectorAll('button, a.btn, input[type=button], input[type=submit]')];
+            // ReservedApply/checkSelect を呼ぶボタンを最優先
+            let b = cands.find(e => /ReservedApply|checkSelect/.test(e.getAttribute('onclick')||''));
+            // 次点：テキストが「予約」で始まる操作ボタン（ナビの「予約」メニューは <a> のヘッダ内なので除外気味）
+            if (!b) b = cands.find(e => /^(予約|申込|確保|次へ|確認)/.test((e.innerText||e.value||'').trim())
+                                        && !e.closest('nav') && !e.closest('header'));
+            if (b) { b.click(); return (b.innerText||b.value||'').trim() + ' | ' + (b.getAttribute('onclick')||''); }
+            return null;
+        }"""
+    )
+    log("  予約申込ボタン:", proceeded)
+    page.wait_for_timeout(800)
+    # penaltyやconfirmのダイアログが出たら内容を捕捉（DRY_RUNでは先に進めない）
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(1500)
     shot(page, f"03_after_reserve_click_{tag}")
 
     if DRY_RUN:
