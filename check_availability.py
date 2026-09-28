@@ -196,7 +196,7 @@ def main():
         lines.append("\n▼ 予約はこちら（ログイン後：施設の予約 → テニス（人工芝）→ 公園名）")
         lines.append(BASE)
         body = "\n".join(lines)
-        subject = f"🎾 テニス空き {len(newly)}件（猿江/木場）"
+        subject = f"🎾 テニス空き {len(newly)}件"
         send_mail(subject, body)
         print(f"新規の空き {len(newly)}件を通知しました")
     else:
