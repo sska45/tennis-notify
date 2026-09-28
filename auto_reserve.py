@@ -164,23 +164,43 @@ def reserve_one(page, target):
     # 空き状況ページ（施設ごと）へ遷移。
     # 注意: ここで page.goto(BASE) すると公開トップを読み直してログイン状態が切れるため、
     # 認証済みセッションのまま doAction で「施設の予約(#free-search)」へ遷移する。
-    page.evaluate("doAction(document.form1, gRsvWOpeHomeAction + '#free-search')")
-    page.wait_for_load_state("networkidle")
-    page.wait_for_timeout(800)
-    page.select_option("#purpose-home", label="テニス（人工芝）")
-    page.wait_for_timeout(1500)
-    page.select_option("#bname-home", label=park["name"])
-    page.wait_for_timeout(500)
-    page.evaluate("doSearchHome(document.form1, gRsvWOpeInstSrchVacantAction)")
-    page.wait_for_load_state("networkidle")
-    page.wait_for_timeout(2000)
-
-    # グリッドは自動描画されないため、確定後に週表示を強制描画する
     use_day = target["date"].replace("-", "")     # YYYYMMDD
     tzone = START_TO_TZONE[target["startTime"]]
     cell_id = f"{use_day}_{tzone}"                 # 例: 20261019_30
 
-    page.wait_for_function("() => typeof getWeekInfoAjax === 'function'", timeout=15000)
+    # 空き状況ページ（施設ごと）へ遷移。ページは二重遷移することがあるので settle を待つ。
+    # 最大2回リトライ（getWeekInfoAjax が定義されるまで）
+    ready = False
+    for attempt in range(2):
+        page.evaluate("doAction(document.form1, gRsvWOpeHomeAction + '#free-search')")
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(1000)
+        # 種目→公園を選択（ドロップダウンが有効化されるのを待つ）
+        page.wait_for_function(
+            "() => { const s=document.querySelector('#purpose-home'); return s && s.options.length>1; }",
+            timeout=15000)
+        page.select_option("#purpose-home", label="テニス（人工芝）")
+        page.wait_for_function(
+            "() => { const s=document.querySelector('#bname-home'); return s && !s.disabled && s.options.length>1; }",
+            timeout=15000)
+        page.select_option("#bname-home", label=park["name"])
+        page.wait_for_timeout(400)
+        page.evaluate("doSearchHome(document.form1, gRsvWOpeInstSrchVacantAction)")
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(2500)   # 二重遷移が落ち着くのを待つ
+        try:
+            page.wait_for_function("() => typeof getWeekInfoAjax === 'function'", timeout=15000)
+            ready = True
+            break
+        except Exception:
+            info = page.evaluate("() => ({url: location.href, title: document.title})")
+            log(f"  空き状況ページ未到達(試行{attempt+1}): {info}")
+            shot(page, f"01_notready_{tag}_{attempt}")
+
+    if not ready:
+        log("  空き状況ページに到達できませんでした。中止。")
+        return False
+
     page.evaluate("() => getWeekInfoAjax(11, 0, 0)")  # 今日起点の週を描画
     page.wait_for_timeout(2500)
 
@@ -334,7 +354,12 @@ def main():
             return
         # まずは1件だけ試す（捕捉目的）
         for t in targets[:1]:
-            ok = reserve_one(page, t)
+            try:
+                ok = reserve_one(page, t)
+            except Exception as e:
+                log(f"  reserve_one 例外: {e}")
+                shot(page, f"99_exception_{t['park']['bcd']}_{t['date']}_{t['startTime']}")
+                ok = False
             if ok and not DRY_RUN:
                 reserved[t["key"]] = {
                     "reservedAt": datetime.now(JST).isoformat(),
