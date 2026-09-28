@@ -15,6 +15,10 @@ import re
 import sys
 import json
 import time
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
+from email.utils import formatdate
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -43,6 +47,13 @@ RESERVED_FILE = "reserved.json"
 DRY_RUN = os.environ.get("AUTO_RESERVE_DRYRUN", "true").lower() != "false"
 USER_ID = os.environ.get("TOMIN_USER_ID", "")
 PASSWORD = os.environ.get("TOMIN_PASSWORD", "")
+
+# 予約完了メール（送信元は空き通知と同じGmailを流用）
+GMAIL_USER = os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+RESERVE_NOTIFY_TO = os.environ.get("RESERVE_NOTIFY_TO", "s.askw.45@gmail.com")
+
+WD_JP = ["月", "火", "水", "木", "金", "土", "日"]
 
 # ── テスト用の一時上書き（本番設定は変えずにフロー捕捉するため） ──────────────
 # 例: TEST_DATE=2026-10-19 TEST_BCD=1040 python3 auto_reserve.py
@@ -340,6 +351,38 @@ def login(page):
     return False
 
 
+def send_reserved_mail(target):
+    """予約完了をメール通知する。"""
+    d = datetime.strptime(target["date"], "%Y-%m-%d").date()
+    when = f"{target['date']}（{WD_JP[d.weekday()]}）{target['startTime']//100:02d}:00〜{target['endTime']//100:02d}:00"
+    subject = f"🎾 予約完了 {target['park']['name']} {target['date']}"
+    body = "\n".join([
+        "テニスコートを自動予約しました。",
+        "",
+        f"■ {target['park']['name']}",
+        f"■ {when}",
+        "",
+        "▼ 予約の確認・キャンセルはこちら",
+        "（ログイン後：マイメニュー → 予約の確認）",
+        BASE,
+        "",
+        "※キャンセルはテニスの場合『利用日の4日前まで』ならペナルティなしです。",
+    ])
+    if not (GMAIL_USER and GMAIL_APP_PASSWORD and RESERVE_NOTIFY_TO):
+        log("  【メール未送信】GMAIL_USER/GMAIL_APP_PASSWORD/RESERVE_NOTIFY_TO 未設定")
+        log(f"  --- {subject}\n{body}")
+        return
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = Header(subject, "utf-8")
+    msg["From"] = GMAIL_USER
+    msg["To"] = RESERVE_NOTIFY_TO
+    msg["Date"] = formatdate(localtime=True)
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_USER, [a.strip() for a in RESERVE_NOTIFY_TO.split(",")], msg.as_string())
+    log(f"  予約完了メール送信 → {RESERVE_NOTIFY_TO}")
+
+
 def main():
     if not (USER_ID and PASSWORD):
         log("TOMIN_USER_ID / TOMIN_PASSWORD が未設定です。環境変数に設定してください。")
@@ -362,8 +405,9 @@ def main():
         if not login(page):
             browser.close()
             return
-        # まずは1件だけ試す（捕捉目的）
-        for t in targets[:1]:
+        # DRY_RUNは1件だけ試す（捕捉目的）。本番は対象を全件予約する。
+        todo = targets[:1] if DRY_RUN else targets
+        for t in todo:
             try:
                 ok = reserve_one(page, t)
             except Exception as e:
@@ -377,6 +421,10 @@ def main():
                     "start": t["startTime"], "end": t["endTime"],
                 }
                 save_reserved(reserved)
+                try:
+                    send_reserved_mail(t)
+                except Exception as e:
+                    log(f"  メール送信失敗: {e}")
         browser.close()
     log("完了。./artifacts/ のスクショ・HTMLを確認してください。")
 
