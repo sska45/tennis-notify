@@ -161,9 +161,9 @@ def reserve_one(page, target):
     tag = f"{park['bcd']}_{target['date']}_{target['startTime']}"
     log(f"予約試行: {park['name']} {target['date']} {target['startTime']}")
 
-    # 空き状況ページ（施設ごと）へ遷移
-    page.goto(BASE, wait_until="networkidle")
-    page.wait_for_timeout(600)
+    # 空き状況ページ（施設ごと）へ遷移。
+    # 注意: ここで page.goto(BASE) すると公開トップを読み直してログイン状態が切れるため、
+    # 認証済みセッションのまま doAction で「施設の予約(#free-search)」へ遷移する。
     page.evaluate("doAction(document.form1, gRsvWOpeHomeAction + '#free-search')")
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(800)
