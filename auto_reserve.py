@@ -34,6 +34,8 @@ TARGET_DATES = [
 ]
 # 午後＝13:00〜21:00開始の枠（13-15/15-17/17-19/19-21）
 AFTERNOON_STARTS = {1300, 1500, 1700, 1900}
+# 開始時刻(HHMM) → 空き状況グリッドの時間帯番号(tzoneNo)。セルidは "YYYYMMDD_tzoneNo"
+START_TO_TZONE = {900: 10, 1100: 20, 1300: 30, 1500: 40, 1700: 50, 1900: 60}
 
 SAFE_BUFFER_DAYS = 6          # 利用日の6日以上先の枠のみ自動予約
 RESERVED_FILE = "reserved.json"
@@ -173,70 +175,60 @@ def reserve_one(page, target):
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(2000)
 
-    # グリッドは自動描画されないことがあるため、対象週(useDay起点)へ移動して強制描画する
-    use_day = target["date"].replace("-", "")
-    render = page.evaluate(
-        """(useDay) => {
-            try {
-                if (document.form1 && document.form1.useDay) {
-                    document.form1.useDay.value = useDay;
-                }
-                if (typeof getWeekInfoAjax === 'function') {
-                    getWeekInfoAjax(11, 0, 0);   // 週表示を再取得・描画
-                    return 'getWeekInfoAjax called';
-                }
-                return 'getWeekInfoAjax undefined';
-            } catch (e) { return 'ERR:' + e.message; }
-        }""",
-        use_day,
-    )
-    log("  グリッド描画:", render)
+    # グリッドは自動描画されないため、確定後に週表示を強制描画する
+    use_day = target["date"].replace("-", "")     # YYYYMMDD
+    tzone = START_TO_TZONE[target["startTime"]]
+    cell_id = f"{use_day}_{tzone}"                 # 例: 20261019_30
+
+    page.wait_for_function("() => typeof getWeekInfoAjax === 'function'", timeout=15000)
+    page.evaluate("() => getWeekInfoAjax(11, 0, 0)")  # 今日起点の週を描画
     page.wait_for_timeout(2500)
+
+    # 週表示はdaystart起点の7日窓。対象セルidが現れるまで「次週」で送る。
+    # 次週送りは非同期のため、viewDay1が実際に変わるのを待ってから次へ進める。
+    found = False
+    steps = 0
+    for i in range(12):
+        if page.evaluate("(id) => !!document.getElementById(id)", cell_id):
+            found = True
+            break
+        prev = page.evaluate("() => document.form1.viewDay1 ? document.form1.viewDay1.value : ''")
+        page.evaluate("() => getWeekInfoAjax(4, 0, 0)")  # 次週>>
+        try:
+            page.wait_for_function(
+                "(prev) => document.form1.viewDay1 && document.form1.viewDay1.value !== prev",
+                arg=prev, timeout=10000)
+        except Exception:
+            page.wait_for_timeout(1500)
+        page.wait_for_timeout(400)
+        steps += 1
+    log(f"  対象週へ移動: {'到達' if found else '未到達'}（cell_id={cell_id}, 次週送り{steps}回）")
     shot(page, f"01_vacant_{tag}")
 
-    # 診断：週グリッドの状態と setReserv セルの一覧
-    diag = page.evaluate(
-        """({useDay, startTime}) => {
-            const wi = document.querySelector('#week-info');
-            const cells = [...document.querySelectorAll('[onclick*="setReserv"]')];
-            const samples = cells.slice(0, 4).map(e => e.getAttribute('onclick'));
-            const match = cells.find(e => {
-                const oc = e.getAttribute('onclick');
-                return oc.includes(String(useDay)) && oc.includes(',' + startTime + ',');
-            });
-            return {
-                weekInfoLen: wi ? wi.innerHTML.length : -1,
-                setReservCount: cells.length,
-                samples,
-                matched: match ? match.getAttribute('onclick') : null,
-            };
-        }""",
-        {"useDay": use_day, "startTime": target["startTime"]},
-    )
-    log("  診断:", json.dumps(diag, ensure_ascii=False)[:500])
+    if not found:
+        log("  対象セルが表示されませんでした。スクショを共有してください。")
+        return False
 
-    # 対象セル（setReserv(... , iDay, startTime, ...)）をクリック
-    clicked = page.evaluate(
-        """({useDay, startTime}) => {
-            const cells = [...document.querySelectorAll('[onclick*="setReserv"]')];
-            for (const el of cells) {
-                const oc = el.getAttribute('onclick');
-                if (oc.includes(String(useDay)) && oc.includes(',' + startTime + ',')) {
-                    el.click();
-                    return oc;
-                }
-            }
-            return null;
+    # 対象セルの状態を確認（available か、onclick が setReserv か）
+    diag = page.evaluate(
+        """(id) => {
+            const td = document.getElementById(id);
+            if (!td) return {exists:false};
+            return {exists:true, cls:td.className, onclick:(td.getAttribute('onclick')||'').slice(0,80),
+                    selected:td.getAttribute('data-selected')};
         }""",
-        {"useDay": use_day, "startTime": target["startTime"]},
+        cell_id,
     )
-    log("  セル検索結果:", clicked)
+    log("  対象セル:", json.dumps(diag, ensure_ascii=False))
+
+    if "available" not in (diag.get("cls") or ""):
+        log("  対象セルが空き状態ではありません（埋まった可能性）。中止。")
+        return False
+
+    # セルをクリック（ログイン時は onclick=setReserv が発火して枠選択される）
+    page.evaluate("(id) => document.getElementById(id).click()", cell_id)
     page.wait_for_timeout(1800)
     shot(page, f"02_selected_{tag}")
-
-    if not clicked:
-        log("  対象セルが見つかりませんでした。上の診断とスクショを共有してください。")
-        return False
 
     # 選択後に現れる操作ボタンを診断（ナビの「予約」メニューと区別するため）
     btns = page.evaluate(
