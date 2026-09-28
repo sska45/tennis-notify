@@ -42,6 +42,16 @@ DRY_RUN = os.environ.get("AUTO_RESERVE_DRYRUN", "true").lower() != "false"
 USER_ID = os.environ.get("TOMIN_USER_ID", "")
 PASSWORD = os.environ.get("TOMIN_PASSWORD", "")
 
+# ── テスト用の一時上書き（本番設定は変えずにフロー捕捉するため） ──────────────
+# 例: TEST_DATE=2026-10-19 TEST_BCD=1040 python3 auto_reserve.py
+_TEST_DATE = os.environ.get("TEST_DATE", "")
+_TEST_BCD = os.environ.get("TEST_BCD", "")
+if _TEST_DATE:
+    TARGET_DATES = [_TEST_DATE]
+    SAFE_BUFFER_DAYS = 0  # テスト時はバッファ無効（捕捉目的）
+if _TEST_BCD:
+    TARGET_PARKS = [p for p in TARGET_PARKS if p["bcd"] == _TEST_BCD]
+
 ART = "artifacts"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
