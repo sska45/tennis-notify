@@ -278,22 +278,26 @@ def login(page):
     page.fill('input[name="userId"]', USER_ID)
     page.fill('input[name="password"]', PASSWORD)
     shot(page, "00_login_filled")
-    # ログインボタン
-    page.evaluate("""
-        () => {
-            const b = [...document.querySelectorAll('button,a')].find(e => /ログイン/.test(e.innerText));
-            if (b) b.click();
-        }
-    """)
+    # ログイン送信ボタンは #btn-go（submitLogin）。ヘッダの #btn-login は別物なので誤爆しない
+    page.click("#btn-go")
     page.wait_for_load_state("networkidle")
     page.wait_for_timeout(1500)
     shot(page, "00b_after_login")
-    body = page.inner_text("body")
-    if "利用者番号" in body or "ログアウト" in body:
-        log("  ログイン成功とみられます")
+    # 成功判定：ログアウト導線(AttestationEndAction=ログアウト)があり、かつログインフォーム(#userId)が消えている
+    state = page.evaluate(
+        """() => ({
+            hasLogout: [...document.querySelectorAll('a,button')].some(
+                e => /AttestationEndAction/.test(e.getAttribute('onclick')||'') || /ログアウト/.test(e.innerText||'')),
+            hasLoginForm: !!document.querySelector('#userId'),
+            hasLoginBtn: !!document.querySelector('#btn-login'),
+        })"""
+    )
+    log("  ログイン状態:", json.dumps(state, ensure_ascii=False))
+    if state.get("hasLogout") and not state.get("hasLoginForm"):
+        log("  ログイン成功")
         return True
-    log("  ログイン結果が不明（00b_after_login を確認してください）")
-    return True  # 続行（捕捉のため）
+    log("  ログイン失敗の可能性（00b_after_login を確認）。中止します。")
+    return False
 
 
 def main():
@@ -315,7 +319,9 @@ def main():
         browser = p.chromium.launch()
         ctx = browser.new_context(locale="ja-JP", user_agent=UA)
         page = ctx.new_page()
-        login(page)
+        if not login(page):
+            browser.close()
+            return
         # まずは1件だけ試す（捕捉目的）
         for t in targets[:1]:
             ok = reserve_one(page, t)
