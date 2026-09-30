@@ -315,8 +315,23 @@ def reserve_one(page, target):
         return False
 
     # ── 本番の最終確定は、申込確認画面のボタン確定後に実装する ──
-    log("  本番確定ロジックは未実装（申込確認画面のボタン確定後に追加）")
-    return False
+        # 最終確定：予約内容一覧画面の「予約」ボタン(checkTextValue→InstRsvApplyAction)を実クリック
+    btn = page.query_selector('[onclick*="gRsvWInstRsvApplyAction"]')
+    if not btn:
+        log("  最終確定ボタンが見つかりません。中止。")
+        return False
+    log("  最終確定を実行します...")
+    btn.click()
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(2500)
+    shot(page, f"04_done_{tag}")
+    result = page.evaluate("() => ({isError: /エラー|データ通信を正しく/.test(document.body.innerText), done: /完了|受け付け|予約番号/.test(document.body.innerText), body: document.body.innerText.replace(/\\s+/g,' ').slice(0,200)})")
+    log("  確定結果:", json.dumps(result, ensure_ascii=False)[:400])
+    if result.get("isError") or not result.get("done"):
+        log("  ★予約確定を確認できませんでした。04_done を確認してください。")
+        return False
+    log("  ★予約確定に成功しました")
+    return True
 
 
 def login(page):
