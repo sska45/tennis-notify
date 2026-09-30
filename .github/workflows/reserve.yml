@@ -1,0 +1,53 @@
+name: テニスコート自動予約
+
+on:
+  schedule:
+    - cron: "*/30 22-23 * * *"
+    - cron: "*/30 0-15 * * *"
+  workflow_dispatch:
+    inputs:
+      dryrun:
+        description: "確定せず確認画面手前で停止（true/false）"
+        required: false
+        default: "true"
+
+concurrency:
+  group: tennis-reserve
+  cancel-in-progress: false
+
+jobs:
+  reserve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: restore reserved state
+        uses: actions/cache@v4
+        with:
+          path: reserved.json
+          key: tennis-reserved-${{ github.run_id }}
+          restore-keys: tennis-reserved-
+      - name: install deps
+        run: |
+          pip install playwright requests
+          python -m playwright install --with-deps chromium
+      - name: run auto reserve
+        run: python auto_reserve.py
+        env:
+          TOMIN_USER_ID: ${{ secrets.TOMIN_USER_ID }}
+          TOMIN_PASSWORD: ${{ secrets.TOMIN_PASSWORD }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RESERVE_NOTIFY_TO: s.askw.45@gmail.com
+          AUTO_RESERVE_DRYRUN: ${{ github.event.inputs.dryrun || 'false' }}
+          WEEKS_AHEAD: "6"
+      - name: upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reserve-artifacts-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
