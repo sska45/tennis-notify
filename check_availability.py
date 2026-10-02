@@ -21,11 +21,13 @@ PARKS = [
     {"name": "有明テニスの森（インドア）", "bcd": "1370", "icd": "13700010", "pps": "1020"},
 ]
 
-WEEKS_AHEAD = int(os.environ.get("WEEKS_AHEAD", "5"))  # 何週間先まで確認するか
+WEEKS_AHEAD = int(os.environ.get("WEEKS_AHEAD", "6"))  # 何週間先まで取得するか（40日をカバーに6週）
 STATE_FILE = "state.json"
 
 # 当日から SKIP_WITHIN_DAYS 日後まで（当日含む）の枠は通知しない。直近すぎる枠を除外する
-SKIP_WITHIN_DAYS = 3  # 当日〜3日後を除外 → 通知対象は4日後以降
+SKIP_WITHIN_DAYS = 1  # 当日〜1日後を除外 → 通知対象は2日後以降
+# 通知する上限（今日から何日先まで）
+NOTIFY_DAYS_AHEAD = 40
 
 # 一度通知した日時は、この時間だけ再通知を抑制する
 NOTIFY_COOLDOWN_HOURS = 24
@@ -127,9 +129,14 @@ def fetch_park(park):
 # ── フィルタ：平日19時以降＋土日全枠 ──────────────────────────────────────────
 
 def passes_filter(slot):
+    today = datetime.now(JST).date()
     # 当日〜SKIP_WITHIN_DAYS日後（直近すぎる枠）は通知しない
-    earliest = (datetime.now(JST).date() + timedelta(days=SKIP_WITHIN_DAYS + 1)).strftime("%Y-%m-%d")
+    earliest = (today + timedelta(days=SKIP_WITHIN_DAYS + 1)).strftime("%Y-%m-%d")
     if slot["date"] < earliest:
+        return False
+    # 40日より先の枠は通知しない
+    latest = (today + timedelta(days=NOTIFY_DAYS_AHEAD)).strftime("%Y-%m-%d")
+    if slot["date"] > latest:
         return False
     if slot["weekday"] >= 5:   # 5=土, 6=日 → 全枠
         return True

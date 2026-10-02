@@ -37,4 +37,4 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
-          WEEKS_AHEAD: "5"
+          WEEKS_AHEAD: "6"

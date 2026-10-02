@@ -41,7 +41,7 @@ AFTERNOON_STARTS = {1300, 1500, 1700, 1900}
 # 開始時刻(HHMM) → 空き状況グリッドの時間帯番号(tzoneNo)。セルidは "YYYYMMDD_tzoneNo"
 START_TO_TZONE = {900: 10, 1100: 20, 1300: 30, 1500: 40, 1700: 50, 1900: 60}
 
-SAFE_BUFFER_DAYS = 6          # 利用日の6日以上先の枠のみ自動予約
+SAFE_BUFFER_DAYS = 5          # 利用日の5日以上先の枠のみ自動予約
 RESERVED_FILE = "reserved.json"
 
 DRY_RUN = os.environ.get("AUTO_RESERVE_DRYRUN", "true").lower() != "false"
