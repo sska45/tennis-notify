@@ -1,10 +1,9 @@
 name: テニスコート空きチェック
 
 on:
-  schedule:
-    - cron: "*/15 22-23 * * *"  # JST 07:00-08:59（UTC 22-23時）
-    - cron: "*/15 0-15 * * *"   # JST 09:00-24:59（UTC 0-15時）
-  workflow_dispatch:            # 手動実行も可能
+  # 定時実行は外部cron(cron-job.org)から workflow_dispatch で起動する。
+  # GitHubのscheduleは遅延・スキップが多いため使わない。
+  workflow_dispatch:            # 外部cron／手動実行の起点
 
 # 同時実行を防ぐ（前の回が長引いても多重起動しない）
 concurrency:
