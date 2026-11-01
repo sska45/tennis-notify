@@ -32,12 +32,23 @@ TARGET_PARKS = [
     {"name": "猿江恩賜公園", "bcd": "1040", "icd": "10400030", "pps": "1030"},
     {"name": "木場公園",     "bcd": "1060", "icd": "10600010", "pps": "1030"},
 ]
-TARGET_DATES = [
-    "2026-10-17", "2026-10-18", "2026-10-31",
-    "2026-11-07", "2026-11-14", "2026-11-15", "2026-11-28", "2026-11-29",
-]
-# 午後＝13:00〜21:00開始の枠（13-15/15-17/17-19/19-21）
+# 枠の開始時刻(HHMM)セット。終日=全6枠、午後=13時以降、午前(13時まで)=9-11/11-13
+ALL_STARTS = {900, 1100, 1300, 1500, 1700, 1900}
 AFTERNOON_STARTS = {1300, 1500, 1700, 1900}
+UNTIL_13_STARTS = {900, 1100}  # 13時までに終わる枠（9-11, 11-13）
+
+# 自動予約の対象：日付ごとに対象の開始時刻セットを指定する
+TARGETS = {
+    "2026-11-07": AFTERNOON_STARTS,
+    "2026-11-14": ALL_STARTS,        # 終日
+    "2026-11-15": UNTIL_13_STARTS,   # 13時まで
+    "2026-11-28": ALL_STARTS,        # 終日
+    "2026-11-29": AFTERNOON_STARTS,
+    "2026-12-12": ALL_STARTS,        # 終日
+    "2026-12-13": ALL_STARTS,        # 終日
+    "2026-12-19": ALL_STARTS,        # 終日
+    "2026-12-20": ALL_STARTS,        # 終日
+}
 # 開始時刻(HHMM) → 空き状況グリッドの時間帯番号(tzoneNo)。セルidは "YYYYMMDD_tzoneNo"
 START_TO_TZONE = {900: 10, 1100: 20, 1300: 30, 1500: 40, 1700: 50, 1900: 60}
 
@@ -60,7 +71,7 @@ WD_JP = ["月", "火", "水", "木", "金", "土", "日"]
 _TEST_DATE = os.environ.get("TEST_DATE", "")
 _TEST_BCD = os.environ.get("TEST_BCD", "")
 if _TEST_DATE:
-    TARGET_DATES = [_TEST_DATE]
+    TARGETS = {_TEST_DATE: ALL_STARTS}  # テストは全枠対象
     SAFE_BUFFER_DAYS = 0  # テスト時はバッファ無効（捕捉目的）
 if _TEST_BCD:
     TARGET_PARKS = [p for p in TARGET_PARKS if p["bcd"] == _TEST_BCD]
@@ -97,10 +108,10 @@ def save_reserved(d):
 # ── 空き確認（requests・軽量）: 対象の空き枠を探す ─────────────────────────────
 
 def find_open_targets(reserved):
-    """対象日×対象公園の午後枠のうち、いま空いていて、かつ安全バッファを満たすものを返す。"""
+    """対象日×対象公園の指定時間帯枠のうち、いま空いていて、かつ安全バッファを満たすものを返す。"""
     today = datetime.now(JST).date()
     earliest = today + timedelta(days=SAFE_BUFFER_DAYS)  # これ以降のみ
-    wanted_dates = {d for d in TARGET_DATES
+    wanted_dates = {d for d in TARGETS
                     if datetime.strptime(d, "%Y-%m-%d").date() >= earliest}
     if not wanted_dates:
         return []
@@ -138,7 +149,7 @@ def find_open_targets(reserved):
                     if slot.get("status") != 0:
                         continue
                     d = datetime.strptime(str(slot["useDay"]), "%Y%m%d").date().strftime("%Y-%m-%d")
-                    if d not in wanted_dates or slot["startTime"] not in AFTERNOON_STARTS:
+                    if d not in wanted_dates or slot["startTime"] not in TARGETS[d]:
                         continue
                     key = f"{park['bcd']}|{d}|{slot['startTime']}"
                     if reserved.get(key):  # 予約済みはスキップ
