@@ -48,6 +48,11 @@ TARGETS = {
     "2026-12-13": ALL_STARTS,        # 終日
     "2026-12-19": ALL_STARTS,        # 終日
     "2026-12-20": ALL_STARTS,        # 終日
+    "2027-01-09": ALL_STARTS,        # 終日
+    "2027-01-10": ALL_STARTS,        # 終日
+    "2027-01-23": ALL_STARTS,        # 終日
+    "2027-01-24": ALL_STARTS,        # 終日
+    "2027-01-30": ALL_STARTS,        # 終日
 }
 # 開始時刻(HHMM) → 空き状況グリッドの時間帯番号(tzoneNo)。セルidは "YYYYMMDD_tzoneNo"
 START_TO_TZONE = {900: 10, 1100: 20, 1300: 30, 1500: 40, 1700: 50, 1900: 60}
