@@ -62,7 +62,7 @@ PASSWORD = os.environ.get("TOMIN_PASSWORD", "")
 # 予約完了メール（送信元は空き通知と同じGmailを流用）
 GMAIL_USER = os.environ.get("GMAIL_USER", "")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
-RESERVE_NOTIFY_TO = os.environ.get("RESERVE_NOTIFY_TO", "s.askw.45@gmail.com")
+RESERVE_NOTIFY_TO = os.environ.get("RESERVE_NOTIFY_TO", GMAIL_USER)  # 未指定なら送信元と同じ
 
 WD_JP = ["月", "火", "水", "木", "金", "土", "日"]
 
@@ -410,16 +410,28 @@ def send_reserved_mail(target):
 
 
 def main():
-    if not (USER_ID and PASSWORD):
+    # CHECK_ONLY=1 のときは空き確認だけ行い、結果を GITHUB_OUTPUT(has_targets) に書いて終了する。
+    # ワークフローはこれを見て、対象がある時だけブラウザをインストールして予約に進む。
+    check_only = os.environ.get("CHECK_ONLY") == "1"
+
+    if not check_only and not (USER_ID and PASSWORD):
         log("TOMIN_USER_ID / TOMIN_PASSWORD が未設定です。環境変数に設定してください。")
         sys.exit(1)
 
-    log(f"=== 自動予約 {'[DRY_RUN]' if DRY_RUN else '[本番]'} ===")
+    log(f"=== 自動予約 {'[空き確認のみ]' if check_only else ('[DRY_RUN]' if DRY_RUN else '[本番]')} ===")
     reserved = load_reserved()
     targets = find_open_targets(reserved)
     log(f"予約候補（空き×安全バッファ内）: {len(targets)}件")
     for t in targets:
         log(f"  - {t['park']['name']} {t['date']} {t['startTime']}-{t['endTime']}")
+
+    if check_only:
+        out = os.environ.get("GITHUB_OUTPUT")
+        if out:
+            with open(out, "a") as f:
+                f.write(f"has_targets={'true' if targets else 'false'}\n")
+        return
+
     if not targets:
         log("対象なし。終了。")
         return

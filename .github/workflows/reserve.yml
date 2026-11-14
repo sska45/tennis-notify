@@ -30,18 +30,28 @@ jobs:
           path: reserved.json
           key: tennis-reserved-${{ github.run_id }}
           restore-keys: tennis-reserved-
-      - name: install deps
-        run: |
-          pip install playwright requests
-          python -m playwright install --with-deps chromium
+      # Pythonパッケージ(PyPI)は軽いので毎回入れる。ブラウザ本体とOS依存(apt)は重く、
+      # Ubuntuミラー障害で失敗しやすいので、対象枠が空いている時だけ入れる。
+      - name: install python packages
+        run: pip install playwright requests
+      - name: check availability
+        id: check
+        run: python auto_reserve.py
+        env:
+          CHECK_ONLY: "1"
+          WEEKS_AHEAD: "6"
+      - name: install browser
+        if: steps.check.outputs.has_targets == 'true'
+        run: python -m playwright install --with-deps chromium
       - name: run auto reserve
+        if: steps.check.outputs.has_targets == 'true'
         run: python auto_reserve.py
         env:
           TOMIN_USER_ID: ${{ secrets.TOMIN_USER_ID }}
           TOMIN_PASSWORD: ${{ secrets.TOMIN_PASSWORD }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          RESERVE_NOTIFY_TO: s.askw.45@gmail.com
+          RESERVE_NOTIFY_TO: ${{ secrets.GMAIL_USER }}
           AUTO_RESERVE_DRYRUN: ${{ github.event.inputs.dryrun || 'false' }}
           WEEKS_AHEAD: "6"
       - name: upload artifacts
